@@ -555,8 +555,8 @@
           <input type="time" id="exp-time">
         </div>
         <div class="form-group">
-          <label>類別 *</label>
-          <select id="exp-category" required>
+          <label>類別</label>
+          <select id="exp-category">
             <option value="">請選擇</option>
             <option value="餐飲">🍜 餐飲</option>
             <option value="交通">🚖 交通</option>
@@ -650,12 +650,7 @@
     </div>
 
     <div class="card">
-      <div class="card-title">🧮 分帳結算</div>
-      <div id="settlement-result"></div>
-    </div>
-
-    <div class="card">
-      <div class="card-title">💸 最終結算方案</div>
+      <div class="card-title">💸 轉帳結算方案</div>
       <div id="final-settlement"></div>
     </div>
 
@@ -696,14 +691,14 @@
         </div>
         <div class="form-group">
           <label>匯率（1 主要幣別 = ? 次要幣別）</label>
-          <input type="number" id="exchange-rate" placeholder="0.9" step="0.0001">
+          <input type="number" id="exchange-rate" placeholder="0.90" step="0.01" min="0.01">
         </div>
       </div>
       <button class="btn btn-primary" onclick="saveCurrencySettings()">✓ 儲存幣別設定</button>
     </div>
 
-    <!-- Cloud Sync -->
-    <div class="card">
+    <!-- Cloud Sync (Admin Only) -->
+    <div class="card" id="cloud-sync-card">
       <div class="card-title">☁️ 雲端同步</div>
       <div style="margin-bottom: 16px;">
         <div style="background: #FFF8E7; padding: 12px; border-radius: 8px; margin-bottom: 16px; border-left: 4px solid #FF6B35;">
@@ -993,7 +988,7 @@
       </div>
       <div class="form-group">
         <label>匯率（1 主要幣別 = ? 次要幣別）</label>
-        <input type="number" id="new-trip-rate" placeholder="0.9" step="0.0001" value="0.9">
+        <input type="number" id="new-trip-rate" placeholder="0.90" step="0.01" min="0.01" value="0.90">
       </div>
     </div>
     <div class="modal-footer">
@@ -1079,17 +1074,26 @@ function applyPermissions() {
     const newTripBtn = document.querySelector('.trip-selector button');
     if (newTripBtn) newTripBtn.style.display = 'none';
 
-    // Hide trip selector
+    // Hide trip selector dropdown and show trip name instead
     const tripSelector = document.getElementById('trip-selector');
-    if (tripSelector) {
-      tripSelector.disabled = true;
-      tripSelector.style.opacity = '0.6';
-      tripSelector.style.cursor = 'not-allowed';
+    const trip = TRIPS[SETTINGS.currentTrip];
+    if (tripSelector && trip) {
+      const tripSelectorContainer = tripSelector.parentElement;
+      tripSelectorContainer.innerHTML = `
+        <span style="font-size: 14px; font-weight: 600;">目前旅行：</span>
+        <div style="background: rgba(255,255,255,0.9); padding: 8px 16px; border-radius: 8px; font-weight: 600; color: #FF6B35;">
+          ✈️ ${trip.name}
+        </div>
+      `;
     }
 
     // Hide delete trip button
     const deleteBtn = document.querySelector('button[onclick="deleteTrip()"]');
     if (deleteBtn) deleteBtn.style.display = 'none';
+
+    // Hide cloud sync card (admin only)
+    const cloudSyncCard = document.getElementById('cloud-sync-card');
+    if (cloudSyncCard) cloudSyncCard.style.display = 'none';
 
     // Add shared user indicator
     const header = document.querySelector('.header-content h1');
@@ -1184,12 +1188,16 @@ function loadPayers() {
   const select = document.getElementById('exp-payer');
   select.innerHTML = '<option value="">請選擇</option>';
 
-  trip.members.forEach(member => {
-    const option = document.createElement('option');
-    option.value = member;
-    option.textContent = member;
-    select.appendChild(option);
-  });
+  if (trip.members.length === 0) {
+    select.innerHTML += '<option value="" disabled>（請先到設定新增成員）</option>';
+  } else {
+    trip.members.forEach(member => {
+      const option = document.createElement('option');
+      option.value = member;
+      option.textContent = member;
+      select.appendChild(option);
+    });
+  }
 }
 
 // ── New Trip ──
@@ -1207,7 +1215,7 @@ function createNewTrip() {
   const end = document.getElementById('new-trip-end').value;
   const currency1 = document.getElementById('new-trip-currency1').value.trim();
   const currency2 = document.getElementById('new-trip-currency2').value.trim();
-  const rate = parseFloat(document.getElementById('new-trip-rate').value);
+  const rate = parseFloat(parseFloat(document.getElementById('new-trip-rate').value).toFixed(2));
 
   if (!name || !start || !end) {
     alert('請填寫必填欄位');
@@ -1221,7 +1229,7 @@ function createNewTrip() {
     endDate: end,
     currency1: currency1 || 'THB',
     currency2: currency2 || 'TWD',
-    exchangeRate: rate || 0.9,
+    exchangeRate: rate || 0.90,
     members: [],
     expenses: []
   };
@@ -1278,7 +1286,7 @@ function addExpense() {
   const sharedCheckboxes = document.querySelectorAll('#shared-members input[type="checkbox"]:checked');
   const sharedWith = Array.from(sharedCheckboxes).map(cb => cb.value);
 
-  if (!date || !category || !description || !amount || !currency || !payer || sharedWith.length === 0) {
+  if (!date || !description || !amount || !currency || !payer || sharedWith.length === 0) {
     alert('請填寫所有必填欄位');
     return;
   }
@@ -1411,7 +1419,6 @@ function renderSettlement() {
   const trip = TRIPS[SETTINGS.currentTrip];
   if (!trip || trip.expenses.length === 0) {
     document.getElementById('personal-stats').innerHTML = '<div class="empty-state-text">尚無支出記錄</div>';
-    document.getElementById('settlement-result').innerHTML = '<div class="empty-state-text">尚無支出記錄</div>';
     document.getElementById('final-settlement').innerHTML = '<div class="empty-state-text">尚無支出記錄</div>';
     return;
   }
@@ -1523,7 +1530,6 @@ function renderSettlement() {
     });
   }
 
-  document.getElementById('settlement-result').innerHTML = personalHtml;
   document.getElementById('final-settlement').innerHTML = settlementHtml;
 }
 
@@ -1579,7 +1585,7 @@ function renderSettings() {
   // Load currency settings
   document.getElementById('currency1').value = trip.currency1;
   document.getElementById('currency2').value = trip.currency2;
-  document.getElementById('exchange-rate').value = trip.exchangeRate;
+  document.getElementById('exchange-rate').value = parseFloat(trip.exchangeRate).toFixed(2);
 
   // Load sync settings
   document.getElementById('sync-url').value = SETTINGS.syncUrl || '';
@@ -1646,7 +1652,7 @@ function saveCurrencySettings() {
 
   trip.currency1 = document.getElementById('currency1').value.trim();
   trip.currency2 = document.getElementById('currency2').value.trim();
-  trip.exchangeRate = parseFloat(document.getElementById('exchange-rate').value);
+  trip.exchangeRate = parseFloat(parseFloat(document.getElementById('exchange-rate').value).toFixed(2));
 
   localStorage.setItem('travel_trips', JSON.stringify(TRIPS));
 
