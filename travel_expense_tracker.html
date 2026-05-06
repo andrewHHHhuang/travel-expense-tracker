@@ -1054,18 +1054,46 @@ function init() {
   applyPermissions();
 }
 
-function loadSharedTrip(tripName) {
+async function loadSharedTrip(tripName) {
   // Find trip by name
-  const tripId = Object.keys(TRIPS).find(id => TRIPS[id].name === tripName);
+  let tripId = Object.keys(TRIPS).find(id => TRIPS[id].name === tripName);
 
   if (tripId) {
     SETTINGS.currentTrip = tripId;
     loadTrips();
     loadTrip(tripId);
-  } else {
-    showEmptyState();
-    showStatus('找不到旅行：' + tripName);
+    return;
   }
+
+  // Trip not found locally, try to load from cloud
+  if (SETTINGS.syncUrl) {
+    showStatus('⏳ 正在從雲端載入旅行資料...');
+
+    try {
+      const response = await fetch(SETTINGS.syncUrl + '?action=download&tripName=' + encodeURIComponent(tripName));
+      const data = await response.json();
+
+      if (data.success && data.data) {
+        const id = 'trip-' + Date.now();
+        TRIPS[id] = data.data;
+        SETTINGS.currentTrip = id;
+
+        localStorage.setItem('travel_trips', JSON.stringify(TRIPS));
+        localStorage.setItem('travel_settings', JSON.stringify(SETTINGS));
+
+        loadTrips();
+        loadTrip(id);
+        showStatus('✓ 已從雲端載入旅行資料');
+        return;
+      }
+    } catch (error) {
+      console.error('Load from cloud failed:', error);
+    }
+  }
+
+  // Failed to load, show error message
+  showEmptyState();
+  showCloudLoadPrompt(tripName);
 }
 
 function applyPermissions() {
@@ -1106,6 +1134,60 @@ function applyPermissions() {
 function showEmptyState() {
   document.getElementById('expenses-table').style.display = 'none';
   document.getElementById('expenses-empty').style.display = 'block';
+}
+
+function showCloudLoadPrompt(tripName) {
+  const emptyState = document.getElementById('expenses-empty');
+  if (!emptyState) return;
+
+  if (SETTINGS.syncUrl) {
+    emptyState.innerHTML = `
+      <div class="empty-state-icon">📦</div>
+      <div class="empty-state-text">找不到旅行：${tripName}</div>
+      <div style="margin: 16px 0; color: #666; font-size: 14px;">
+        本機沒有此旅行資料，但可以從雲端載入
+      </div>
+      <button class="btn btn-primary" onclick="manualLoadSharedTrip('${tripName}')">📥 從雲端載入資料</button>
+    `;
+  } else {
+    emptyState.innerHTML = `
+      <div class="empty-state-icon">⚠️</div>
+      <div class="empty-state-text">找不到旅行：${tripName}</div>
+      <div style="margin: 16px 0; color: #666; font-size: 14px;">
+        請向旅行管理員索取資料檔案（JSON）<br>
+        然後到「⚙️ 設定」→「💾 資料管理」→「📤 匯入 JSON」
+      </div>
+    `;
+  }
+}
+
+async function manualLoadSharedTrip(tripName) {
+  showStatus('⏳ 正在從雲端載入...');
+
+  try {
+    const response = await fetch(SETTINGS.syncUrl + '?action=download&tripName=' + encodeURIComponent(tripName));
+    const data = await response.json();
+
+    if (data.success && data.data) {
+      const id = 'trip-' + Date.now();
+      TRIPS[id] = data.data;
+      SETTINGS.currentTrip = id;
+
+      localStorage.setItem('travel_trips', JSON.stringify(TRIPS));
+      localStorage.setItem('travel_settings', JSON.stringify(SETTINGS));
+
+      loadTrips();
+      loadTrip(id);
+      showStatus('✓ 資料載入成功');
+    } else {
+      showStatus('❌ 載入失敗：找不到資料');
+      alert('無法從雲端載入資料，請確認旅行名稱是否正確，或聯絡旅行管理員。');
+    }
+  } catch (error) {
+    console.error('Load error:', error);
+    showStatus('❌ 載入失敗');
+    alert('載入失敗：' + error.message);
+  }
 }
 
 function setDefaultDate() {
