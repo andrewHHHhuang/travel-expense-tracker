@@ -1037,10 +1037,10 @@ const isAdmin = urlParams.get('admin') === 'true';
 const sharedTrip = urlParams.get('trip');
 
 // ── Initialization ──
-function init() {
+async function init() {
   // Check shared trip link
   if (sharedTrip && !isAdmin) {
-    loadSharedTrip(sharedTrip);
+    await loadSharedTrip(sharedTrip);
   } else {
     loadTrips();
     if (SETTINGS.currentTrip && TRIPS[SETTINGS.currentTrip]) {
@@ -1083,6 +1083,7 @@ async function loadSharedTrip(tripName) {
 
         loadTrips();
         loadTrip(id);
+        applyPermissions();  // 重新套用權限控制，更新 UI
         showStatus('✓ 已從雲端載入旅行資料');
         return;
       }
@@ -1178,6 +1179,7 @@ async function manualLoadSharedTrip(tripName) {
 
       loadTrips();
       loadTrip(id);
+      applyPermissions();  // 重新套用權限控制，更新 UI
       showStatus('✓ 資料載入成功');
     } else {
       showStatus('❌ 載入失敗：找不到資料');
