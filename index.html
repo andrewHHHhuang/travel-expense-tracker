@@ -1019,13 +1019,13 @@
 let TRIPS = JSON.parse(localStorage.getItem('travel_trips')) || {};
 let SETTINGS = JSON.parse(localStorage.getItem('travel_settings')) || {
   currentTrip: null,
-  syncUrl: 'https://script.google.com/macros/s/AKfycbxxp0NowcfKuyq-VDIgIBY4nZZuwXOzKcsxmJgdbxe23kKs9tudVvLb40zRGmSvB3Z3/exec',
+  syncUrl: 'https://script.google.com/macros/s/AKfycbyoWvZ_x2hRIN_5FK0bx8XL2JLLP3um4U4JbrMz2ZohhyaBHTK2czSjzc1nrBt07y2hBw/exec',
   autoSync: false
 };
 
 // Ensure syncUrl is set if not already
 if (!SETTINGS.syncUrl) {
-  SETTINGS.syncUrl = 'https://script.google.com/macros/s/AKfycbxxp0NowcfKuyq-VDIgIBY4nZZuwXOzKcsxmJgdbxe23kKs9tudVvLb40zRGmSvB3Z3/exec';
+  SETTINGS.syncUrl = 'https://script.google.com/macros/s/AKfycbyoWvZ_x2hRIN_5FK0bx8XL2JLLP3um4U4JbrMz2ZohhyaBHTK2czSjzc1nrBt07y2hBw/exec';
   localStorage.setItem('travel_settings', JSON.stringify(SETTINGS));
 }
 
