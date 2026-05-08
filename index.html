@@ -1397,6 +1397,9 @@ function addExpense() {
   renderSettlement();
   showStatus('✓ 支出已新增');
 
+  // Auto sync to cloud
+  autoSyncToCloud();
+
   // Auto sync if enabled
   autoSyncIfEnabled();
 }
@@ -1496,6 +1499,9 @@ function deleteExpense(expId) {
   renderExpenses();
   renderSettlement();
   showStatus('✓ 支出已刪除');
+
+  // Auto sync to cloud
+  autoSyncToCloud();
 }
 
 // ── Settlement ──
@@ -1890,6 +1896,32 @@ async function manualSync() {
     console.error('Sync error:', error);
     document.getElementById('sync-status').innerHTML = '❌ 同步失敗：' + error.message;
     showStatus('❌ 同步失敗');
+  }
+}
+
+// Auto sync to cloud (silent, for shared users)
+async function autoSyncToCloud() {
+  const trip = TRIPS[SETTINGS.currentTrip];
+  if (!trip || !SETTINGS.syncUrl) {
+    return; // Silently skip if no trip or sync URL
+  }
+
+  try {
+    await fetch(SETTINGS.syncUrl, {
+      method: 'POST',
+      mode: 'no-cors',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        action: 'upload',
+        tripName: trip.name,
+        data: trip
+      })
+    });
+    console.log('✓ Auto sync completed');
+  } catch (error) {
+    console.error('Auto sync error:', error);
   }
 }
 
