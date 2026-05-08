@@ -714,14 +714,16 @@
           <label>Google Apps Script URL <span style="color: #28A745; font-size: 12px;">✓ 已設定</span></label>
           <input type="text" id="sync-url" readonly value="https://script.google.com/macros/s/AKfycbyoWvZ_x2hRIN_5FK0bx8XL2JLLP3um4U4JbrMz2ZohhyaBHTK2czSjzc1nrBt07y2hBw/exec" style="width: 100%; padding: 10px 12px; border: 1px solid #DDD; border-radius: 8px; background-color: #F5F5F5; color: #666; cursor: not-allowed;">
         </div>
-        <div style="display: flex; align-items: center; gap: 12px; margin-bottom: 12px;">
-          <label style="display: flex; align-items: center; gap: 8px; cursor: pointer;">
-            <input type="checkbox" id="auto-sync" onchange="toggleAutoSync()" style="width: 18px; height: 18px;">
-            <span>啟用自動同步（每次新增支出後自動上傳）</span>
-          </label>
+        <div style="padding: 12px; background: #E8F5E9; border-radius: 8px; margin-bottom: 12px;">
+          <div style="display: flex; align-items: center; gap: 8px; color: #28A745;">
+            <span style="font-size: 18px;">✓</span>
+            <span style="font-weight: 500;">自動同步已啟用</span>
+          </div>
+          <div style="font-size: 13px; color: #666; margin-top: 4px;">
+            每次新增或刪除記帳後，資料會自動上傳到雲端
+          </div>
         </div>
         <div style="display: flex; gap: 8px;">
-          <button class="btn btn-primary" onclick="saveSyncSettings()">✓ 儲存同步設定</button>
           <button class="btn btn-secondary" onclick="manualSync()">🔄 立即同步</button>
           <button class="btn btn-secondary" onclick="loadFromCloud()">📥 從雲端載入</button>
         </div>
@@ -1677,10 +1679,6 @@ function renderSettings() {
   document.getElementById('currency2').value = trip.currency2;
   document.getElementById('exchange-rate').value = parseFloat(trip.exchangeRate).toFixed(2);
 
-  // Load sync settings
-  document.getElementById('sync-url').value = SETTINGS.syncUrl || '';
-  document.getElementById('auto-sync').checked = SETTINGS.autoSync || false;
-
   // Render members list
   let membersHtml = '<div style="display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 16px;">';
   trip.members.forEach(member => {
@@ -1846,18 +1844,6 @@ function copyLink(inputId) {
 }
 
 // ── Cloud Sync ──
-function saveSyncSettings() {
-  SETTINGS.syncUrl = document.getElementById('sync-url').value.trim();
-  SETTINGS.autoSync = document.getElementById('auto-sync').checked;
-  localStorage.setItem('travel_settings', JSON.stringify(SETTINGS));
-  showStatus('✓ 同步設定已儲存');
-}
-
-function toggleAutoSync() {
-  SETTINGS.autoSync = document.getElementById('auto-sync').checked;
-  localStorage.setItem('travel_settings', JSON.stringify(SETTINGS));
-}
-
 async function manualSync() {
   const trip = TRIPS[SETTINGS.currentTrip];
   if (!trip) {
