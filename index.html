@@ -486,28 +486,110 @@
       transform: translateY(0);
     }
 
+    /* ── Filter Bar ── */
+    .filter-bar {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      margin: 12px 0 4px;
+      padding: 12px;
+      background: #F9F9F9;
+      border-radius: 8px;
+    }
+
+    .filter-bar select,
+    .filter-bar input[type="date"] {
+      padding: 7px 10px;
+      border: 1px solid #DDD;
+      border-radius: 6px;
+      font-size: 13px;
+      background: white;
+      cursor: pointer;
+    }
+
+    /* ── Expense Cards (mobile) ── */
+    .expense-card {
+      background: #FAFAFA;
+      border: 1px solid #EBEBEB;
+      border-radius: 10px;
+      padding: 14px;
+      margin-bottom: 10px;
+    }
+
+    .expense-card-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-start;
+      margin-bottom: 6px;
+      gap: 8px;
+    }
+
+    .expense-card-left { flex: 1; }
+
+    .expense-card-amount {
+      font-weight: 700;
+      color: #FF6B35;
+      font-size: 17px;
+      text-align: right;
+      white-space: nowrap;
+    }
+
+    .expense-card-amount small {
+      display: block;
+      font-size: 12px;
+      color: #999;
+      font-weight: 400;
+    }
+
+    .expense-card-desc {
+      font-size: 15px;
+      font-weight: 600;
+      margin-bottom: 4px;
+    }
+
+    .expense-card-date-cat {
+      font-size: 12px;
+      color: #888;
+      margin-bottom: 6px;
+    }
+
+    .expense-card-meta {
+      font-size: 12px;
+      color: #666;
+      margin-bottom: 8px;
+    }
+
+    .expense-card-actions {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
     /* ── Responsive ── */
     @media (max-width: 768px) {
-      .header h1 {
-        font-size: 20px;
-      }
+      .header h1 { font-size: 20px; }
 
       .trip-selector {
         width: 100%;
         flex-wrap: wrap;
       }
 
-      .form-grid {
-        grid-template-columns: 1fr;
-      }
+      .form-grid { grid-template-columns: 1fr; }
 
-      .table-container {
-        font-size: 12px;
-      }
+      /* Mobile: hide table, show cards */
+      .table-container { display: none !important; }
+      #expenses-cards { display: block !important; }
 
-      th, td {
-        padding: 8px;
+      .filter-bar select,
+      .filter-bar input[type="date"] {
+        flex: 1;
+        min-width: calc(50% - 8px);
       }
+    }
+
+    @media (min-width: 769px) {
+      /* Desktop: show table, hide cards */
+      #expenses-cards { display: none; }
     }
   </style>
 </head>
@@ -613,6 +695,28 @@
     <div class="card">
       <div class="card-title">📋 支出記錄</div>
       <div id="expenses-summary" class="summary-grid"></div>
+
+      <!-- Filter Bar -->
+      <div class="filter-bar" id="filter-bar" style="display:none;">
+        <select id="filter-category" onchange="applyExpenseFilter()">
+          <option value="">全部類別</option>
+          <option value="餐飲">🍜 餐飲</option>
+          <option value="交通">🚖 交通</option>
+          <option value="住宿">🏨 住宿</option>
+          <option value="購物">🛍 購物</option>
+          <option value="娛樂">🎡 娛樂</option>
+          <option value="門票">🎫 門票</option>
+          <option value="其他">📌 其他</option>
+        </select>
+        <select id="filter-payer" onchange="applyExpenseFilter()">
+          <option value="">全部付款人</option>
+        </select>
+        <input type="date" id="filter-date-from" onchange="applyExpenseFilter()" title="開始日期">
+        <input type="date" id="filter-date-to" onchange="applyExpenseFilter()" title="結束日期">
+        <button class="btn btn-secondary" style="padding: 7px 12px; font-size: 13px;" onclick="clearFilters()">✕ 清除</button>
+      </div>
+
+      <!-- Desktop Table -->
       <div class="table-container">
         <table id="expenses-table">
           <thead>
@@ -629,10 +733,13 @@
             </tr>
           </thead>
           <tbody id="expenses-tbody">
-            <!-- Dynamic content -->
           </tbody>
         </table>
       </div>
+
+      <!-- Mobile Cards -->
+      <div id="expenses-cards" style="display:none;"></div>
+
       <div id="expenses-empty" class="empty-state">
         <div class="empty-state-icon">📝</div>
         <div class="empty-state-text">尚無支出記錄</div>
@@ -1048,6 +1155,24 @@ if (!SETTINGS.syncUrl) {
 let currentReceiptData = null;
 let editingExpenseId = null;
 let currentMember = null;
+let expenseFilters = { category: '', payer: '', dateFrom: '', dateTo: '' };
+
+function applyExpenseFilter() {
+  expenseFilters.category = document.getElementById('filter-category').value;
+  expenseFilters.payer    = document.getElementById('filter-payer').value;
+  expenseFilters.dateFrom = document.getElementById('filter-date-from').value;
+  expenseFilters.dateTo   = document.getElementById('filter-date-to').value;
+  renderExpenses();
+}
+
+function clearFilters() {
+  expenseFilters = { category: '', payer: '', dateFrom: '', dateTo: '' };
+  document.getElementById('filter-category').value  = '';
+  document.getElementById('filter-payer').value     = '';
+  document.getElementById('filter-date-from').value = '';
+  document.getElementById('filter-date-to').value   = '';
+  renderExpenses();
+}
 
 // ── URL Parameters & Permission ──
 const urlParams = new URLSearchParams(window.location.search);
@@ -1559,21 +1684,38 @@ function cancelEdit() {
 
 function renderExpenses() {
   const trip = TRIPS[SETTINGS.currentTrip];
+  const filterBar = document.getElementById('filter-bar');
+  const cardsContainer = document.getElementById('expenses-cards');
+
   if (!trip || trip.expenses.length === 0) {
     document.getElementById('expenses-table').style.display = 'none';
     document.getElementById('expenses-empty').style.display = 'block';
     document.getElementById('expenses-summary').innerHTML = '';
+    if (filterBar) filterBar.style.display = 'none';
+    if (cardsContainer) cardsContainer.innerHTML = '';
     return;
   }
 
-  document.getElementById('expenses-table').style.display = 'table';
-  document.getElementById('expenses-empty').style.display = 'none';
+  if (filterBar) filterBar.style.display = 'flex';
 
-  // Render summary
+  // Populate payer filter dropdown
+  const payerSelect = document.getElementById('filter-payer');
+  if (payerSelect) {
+    const currentVal = payerSelect.value;
+    payerSelect.innerHTML = '<option value="">所有付款人</option>';
+    (trip.members || []).forEach(m => {
+      const opt = document.createElement('option');
+      opt.value = m;
+      opt.textContent = m;
+      if (m === currentVal) opt.selected = true;
+      payerSelect.appendChild(opt);
+    });
+  }
+
+  // Summary always uses all expenses (not filtered)
   const total1 = trip.expenses.reduce((sum, exp) => {
     return sum + (exp.currency === trip.currency1 ? exp.amount : exp.amount / trip.exchangeRate);
   }, 0);
-
   const total2 = total1 * trip.exchangeRate;
 
   document.getElementById('expenses-summary').innerHTML = `
@@ -1591,24 +1733,39 @@ function renderExpenses() {
     </div>
   `;
 
-  // Render table
-  const tbody = document.getElementById('expenses-tbody');
-  tbody.innerHTML = '';
-
   // Sort by date desc
-  const sorted = [...trip.expenses].sort((a, b) => {
+  let sorted = [...trip.expenses].sort((a, b) => {
     const dateA = new Date(a.date + ' ' + (a.time || '00:00'));
     const dateB = new Date(b.date + ' ' + (b.time || '00:00'));
     return dateB - dateA;
   });
+
+  // Apply filters
+  const { category, payer, dateFrom, dateTo } = expenseFilters;
+  if (category) sorted = sorted.filter(e => e.category === category);
+  if (payer)    sorted = sorted.filter(e => e.paidBy === payer);
+  if (dateFrom) sorted = sorted.filter(e => e.date >= dateFrom);
+  if (dateTo)   sorted = sorted.filter(e => e.date <= dateTo);
+
+  document.getElementById('expenses-empty').style.display = 'none';
+
+  // Render desktop table
+  const tbody = document.getElementById('expenses-tbody');
+  tbody.innerHTML = '';
+
+  if (sorted.length === 0) {
+    document.getElementById('expenses-table').style.display = 'none';
+    if (cardsContainer) cardsContainer.innerHTML = '<p style="color:#999;text-align:center;padding:20px;">沒有符合篩選條件的支出</p>';
+    return;
+  }
+
+  document.getElementById('expenses-table').style.display = 'table';
 
   sorted.forEach(exp => {
     const perPerson = exp.amount / exp.sharedWith.length;
     const otherCurrency = exp.currency === trip.currency1
       ? (exp.amount * trip.exchangeRate).toFixed(2) + ' ' + trip.currency2
       : (exp.amount / trip.exchangeRate).toFixed(2) + ' ' + trip.currency1;
-
-    // Permission: admin can edit/delete all; shared user can only edit/delete own entries
     const canEditDelete = isAdmin || (sharedTrip && currentMember && exp.paidBy === currentMember);
 
     const tr = document.createElement('tr');
@@ -1630,6 +1787,46 @@ function renderExpenses() {
     `;
     tbody.appendChild(tr);
   });
+
+  // Render mobile cards
+  if (cardsContainer) {
+    cardsContainer.innerHTML = '';
+    sorted.forEach(exp => {
+      const perPerson = exp.amount / exp.sharedWith.length;
+      const otherCurrency = exp.currency === trip.currency1
+        ? (exp.amount * trip.exchangeRate).toFixed(2) + ' ' + trip.currency2
+        : (exp.amount / trip.exchangeRate).toFixed(2) + ' ' + trip.currency1;
+      const canEditDelete = isAdmin || (sharedTrip && currentMember && exp.paidBy === currentMember);
+
+      const card = document.createElement('div');
+      card.className = 'expense-card';
+      card.innerHTML = `
+        <div class="expense-card-header">
+          <span class="expense-card-category">${exp.category}</span>
+          <span class="expense-card-amount">${exp.amount.toFixed(2)} ${exp.currency}</span>
+        </div>
+        <div class="expense-card-desc">${exp.description}</div>
+        <div class="expense-card-meta">
+          <span>📅 ${exp.date}${exp.time ? ' ' + exp.time : ''}</span>
+          <span>👤 ${exp.paidBy}</span>
+        </div>
+        <div class="expense-card-meta">
+          <span>分攤：${exp.sharedWith.join(', ')}</span>
+          <span>每人 ${perPerson.toFixed(2)}</span>
+        </div>
+        <div class="expense-card-meta">
+          <span style="color:#999;">${otherCurrency}</span>
+          ${exp.receipt ? `<img src="${exp.receipt}" class="receipt-preview" onclick="viewReceipt('${exp.receipt}')" style="width:36px;height:36px;border-radius:4px;cursor:pointer;">` : ''}
+        </div>
+        ${canEditDelete ? `
+        <div class="expense-card-actions">
+          <button class="btn btn-secondary" style="flex:1;font-size:13px;" onclick="editExpense('${exp.id}')">編輯</button>
+          <button class="btn btn-secondary" style="flex:1;font-size:13px;" onclick="deleteExpense('${exp.id}')">刪除</button>
+        </div>` : ''}
+      `;
+      cardsContainer.appendChild(card);
+    });
+  }
 }
 
 function deleteExpense(expId) {
