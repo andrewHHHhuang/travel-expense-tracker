@@ -602,9 +602,10 @@
         <div id="receipt-preview-container" style="margin-top: 12px;"></div>
       </div>
 
-      <div style="display: flex; gap: 8px;">
-        <button class="btn btn-primary" onclick="addExpense()">✓ 新增支出</button>
+      <div style="display: flex; gap: 8px; flex-wrap: wrap;">
+        <button class="btn btn-primary" id="expense-submit-btn" onclick="addExpense()">✓ 新增支出</button>
         <button class="btn btn-secondary" onclick="clearExpenseForm()">清除</button>
+        <button class="btn btn-secondary" id="cancel-edit-btn" onclick="cancelEdit()" style="display: none;">✕ 取消編輯</button>
       </div>
     </div>
 
@@ -1013,6 +1014,19 @@
   </div>
 </div>
 
+<!-- Member Select Modal (shared mode) -->
+<div id="member-select-modal" class="modal-overlay">
+  <div class="modal">
+    <div class="modal-header">
+      <h3>👤 請選擇你的名字</h3>
+    </div>
+    <div class="modal-body">
+      <p style="margin-bottom: 16px; color: #666; font-size: 14px;">選擇後才能記帳，也只能刪除或編輯自己記的帳目</p>
+      <div id="member-select-list" style="display: flex; flex-direction: column; gap: 10px;"></div>
+    </div>
+  </div>
+</div>
+
 <!-- Status Message -->
 <div id="status-message" class="status-message"></div>
 
@@ -1032,6 +1046,8 @@ if (!SETTINGS.syncUrl) {
 }
 
 let currentReceiptData = null;
+let editingExpenseId = null;
+let currentMember = null;
 
 // ── URL Parameters & Permission ──
 const urlParams = new URLSearchParams(window.location.search);
@@ -1083,6 +1099,7 @@ async function loadSharedTrip(tripName) {
         loadTrip(tripId);
         applyPermissions();
         showStatus('✓ 已載入最新旅行資料');
+        if (!currentMember) showMemberSelectModal(TRIPS[tripId]);
         return;
       }
     } catch (error) {
@@ -1097,6 +1114,7 @@ async function loadSharedTrip(tripName) {
     loadTrips();
     loadTrip(tripId);
     showStatus('⚠️ 雲端無法連線，顯示本機快取');
+    if (!currentMember) showMemberSelectModal(TRIPS[tripId]);
     return;
   }
 
@@ -1135,6 +1153,26 @@ async function loadAllTripsFromCloud() {
     console.error('Load all trips from cloud failed:', error);
     showStatus('⚠️ 雲端載入失敗，使用本機資料');
   }
+}
+
+function showMemberSelectModal(trip) {
+  if (!trip || !trip.members || trip.members.length === 0) return;
+  const list = document.getElementById('member-select-list');
+  list.innerHTML = trip.members.map(name => `
+    <button class="btn btn-secondary" style="padding: 12px; font-size: 16px; font-weight: 600;"
+      onclick="selectMember('${name}')">${name}</button>
+  `).join('');
+  document.getElementById('member-select-modal').classList.add('active');
+}
+
+function selectMember(name) {
+  currentMember = name;
+  document.getElementById('member-select-modal').classList.remove('active');
+  // Pre-select payer to self
+  const payerEl = document.getElementById('exp-payer');
+  if (payerEl) payerEl.value = name;
+  renderExpenses();
+  showStatus(`✓ 以 ${name} 的身份記帳中`);
 }
 
 function applyPermissions() {
@@ -1376,9 +1414,20 @@ function previewReceipt(event) {
 
   const reader = new FileReader();
   reader.onload = function(e) {
-    currentReceiptData = e.target.result;
-    const container = document.getElementById('receipt-preview-container');
-    container.innerHTML = `<img src="${e.target.result}" class="receipt-preview" onclick="viewReceipt('${e.target.result}')">`;
+    const img = new Image();
+    img.onload = function() {
+      const MAX = 400;
+      let w = img.width, h = img.height;
+      if (w > h) { if (w > MAX) { h = Math.round(h * MAX / w); w = MAX; } }
+      else        { if (h > MAX) { w = Math.round(w * MAX / h); h = MAX; } }
+      const canvas = document.createElement('canvas');
+      canvas.width = w; canvas.height = h;
+      canvas.getContext('2d').drawImage(img, 0, 0, w, h);
+      currentReceiptData = canvas.toDataURL('image/jpeg', 0.5);
+      const container = document.getElementById('receipt-preview-container');
+      container.innerHTML = `<img src="${currentReceiptData}" class="receipt-preview" onclick="viewReceipt('${currentReceiptData}')">`;
+    };
+    img.src = e.target.result;
   };
   reader.readAsDataURL(file);
 }
@@ -1415,32 +1464,43 @@ function addExpense() {
     return;
   }
 
-  const expense = {
-    id: 'exp-' + Date.now(),
-    date: date,
-    time: time || '',
-    category: category,
-    description: description,
-    amount: amount,
-    currency: currency,
-    paidBy: payer,
-    sharedWith: sharedWith,
-    receipt: currentReceiptData || null,
-    createdAt: Date.now()
-  };
+  if (editingExpenseId) {
+    // Update existing expense
+    const idx = trip.expenses.findIndex(e => e.id === editingExpenseId);
+    if (idx !== -1) {
+      trip.expenses[idx] = {
+        ...trip.expenses[idx],
+        date, time: time || '', category, description,
+        amount, currency, paidBy: payer, sharedWith,
+        receipt: currentReceiptData || trip.expenses[idx].receipt
+      };
+    }
+    editingExpenseId = null;
+    document.getElementById('expense-submit-btn').textContent = '✓ 新增支出';
+    document.getElementById('cancel-edit-btn').style.display = 'none';
+    localStorage.setItem('travel_trips', JSON.stringify(TRIPS));
+    clearExpenseForm();
+    renderExpenses();
+    renderSettlement();
+    showStatus('✓ 支出已更新');
+  } else {
+    // New expense
+    const expense = {
+      id: 'exp-' + Date.now(),
+      date, time: time || '', category, description,
+      amount, currency, paidBy: payer, sharedWith,
+      receipt: currentReceiptData || null,
+      createdAt: Date.now()
+    };
+    trip.expenses.push(expense);
+    localStorage.setItem('travel_trips', JSON.stringify(TRIPS));
+    clearExpenseForm();
+    renderExpenses();
+    renderSettlement();
+    showStatus('✓ 支出已新增');
+  }
 
-  trip.expenses.push(expense);
-  localStorage.setItem('travel_trips', JSON.stringify(TRIPS));
-
-  clearExpenseForm();
-  renderExpenses();
-  renderSettlement();
-  showStatus('✓ 支出已新增');
-
-  // Auto sync to cloud
   autoSyncToCloud();
-
-  // Auto sync if enabled
   autoSyncIfEnabled();
 }
 
@@ -1457,7 +1517,44 @@ function clearExpenseForm() {
     cb.checked = true;
   });
 
+  editingExpenseId = null;
   setDefaultDate();
+}
+
+function editExpense(expId) {
+  const trip = TRIPS[SETTINGS.currentTrip];
+  const exp = trip.expenses.find(e => e.id === expId);
+  if (!exp) return;
+
+  editingExpenseId = expId;
+  document.getElementById('exp-date').value = exp.date;
+  document.getElementById('exp-time').value = exp.time || '';
+  document.getElementById('exp-category').value = exp.category || '';
+  document.getElementById('exp-description').value = exp.description;
+  document.getElementById('exp-amount').value = exp.amount;
+  document.getElementById('exp-currency').value = exp.currency;
+  document.getElementById('exp-payer').value = exp.paidBy;
+
+  document.querySelectorAll('#shared-members input[type="checkbox"]').forEach(cb => {
+    cb.checked = exp.sharedWith.includes(cb.value);
+  });
+
+  if (exp.receipt) {
+    currentReceiptData = exp.receipt;
+    document.getElementById('receipt-preview-container').innerHTML =
+      `<img src="${exp.receipt}" class="receipt-preview" onclick="viewReceipt('${exp.receipt}')">`;
+  }
+
+  document.getElementById('expense-submit-btn').textContent = '✓ 更新支出';
+  document.getElementById('cancel-edit-btn').style.display = '';
+  document.querySelector('.card').scrollIntoView({ behavior: 'smooth' });
+}
+
+function cancelEdit() {
+  editingExpenseId = null;
+  document.getElementById('expense-submit-btn').textContent = '✓ 新增支出';
+  document.getElementById('cancel-edit-btn').style.display = 'none';
+  clearExpenseForm();
 }
 
 function renderExpenses() {
@@ -1511,6 +1608,9 @@ function renderExpenses() {
       ? (exp.amount * trip.exchangeRate).toFixed(2) + ' ' + trip.currency2
       : (exp.amount / trip.exchangeRate).toFixed(2) + ' ' + trip.currency1;
 
+    // Permission: admin can edit/delete all; shared user can only edit/delete own entries
+    const canEditDelete = isAdmin || (sharedTrip && currentMember && exp.paidBy === currentMember);
+
     const tr = document.createElement('tr');
     tr.innerHTML = `
       <td>${exp.date}${exp.time ? '<br><small>' + exp.time + '</small>' : ''}</td>
@@ -1521,8 +1621,11 @@ function renderExpenses() {
       <td><small>${exp.sharedWith.join(', ')}</small></td>
       <td class="amount">${perPerson.toFixed(2)}</td>
       <td>${exp.receipt ? `<img src="${exp.receipt}" class="receipt-preview" onclick="viewReceipt('${exp.receipt}')" style="width: 40px; height: 40px;">` : '-'}</td>
-      <td>
-        <button class="btn btn-secondary" style="padding: 6px 12px; font-size: 12px;" onclick="deleteExpense('${exp.id}')">刪除</button>
+      <td style="white-space: nowrap;">
+        ${canEditDelete ? `
+          <button class="btn btn-secondary" style="padding: 6px 10px; font-size: 12px;" onclick="editExpense('${exp.id}')">編輯</button>
+          <button class="btn btn-secondary" style="padding: 6px 10px; font-size: 12px;" onclick="deleteExpense('${exp.id}')">刪除</button>
+        ` : ''}
       </td>
     `;
     tbody.appendChild(tr);
