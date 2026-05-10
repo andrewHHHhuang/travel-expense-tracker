@@ -486,6 +486,11 @@
       transform: translateY(0);
     }
 
+    @keyframes pulse {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0.3; }
+    }
+
     /* ── Filter Bar ── */
     .filter-bar {
       display: flex;
@@ -599,6 +604,10 @@
 <div class="header">
   <div class="header-content">
     <h1>💰 旅行記帳工具</h1>
+    <div id="sync-indicator" style="display:none; font-size:12px; color:rgba(255,255,255,0.85); display:flex; align-items:center; gap:6px;">
+      <span id="sync-dot" style="width:8px;height:8px;border-radius:50%;background:#4ADE80;display:inline-block;"></span>
+      <span id="sync-label">-</span>
+    </div>
     <div class="trip-selector">
       <span style="font-size: 14px; font-weight: 600;">目前旅行：</span>
       <select id="trip-selector" onchange="switchTrip()">
@@ -1156,6 +1165,31 @@ let currentReceiptData = null;
 let editingExpenseId = null;
 let currentMember = null;
 let expenseFilters = { category: '', payer: '', dateFrom: '', dateTo: '' };
+let lastSyncTime = null;
+
+function updateSyncIndicator(state) {
+  const indicator = document.getElementById('sync-indicator');
+  const dot = document.getElementById('sync-dot');
+  const label = document.getElementById('sync-label');
+  if (!indicator || !dot || !label) return;
+  indicator.style.display = 'flex';
+  if (state === 'syncing') {
+    dot.style.background = '#FCD34D';
+    dot.style.animation = 'pulse 1s infinite';
+    label.textContent = '同步中...';
+  } else if (state === 'ok') {
+    lastSyncTime = new Date();
+    dot.style.background = '#4ADE80';
+    dot.style.animation = '';
+    const hh = String(lastSyncTime.getHours()).padStart(2, '0');
+    const mm = String(lastSyncTime.getMinutes()).padStart(2, '0');
+    label.textContent = `已同步 ${hh}:${mm}`;
+  } else if (state === 'error') {
+    dot.style.background = '#F87171';
+    dot.style.animation = '';
+    label.textContent = '同步失敗';
+  }
+}
 
 function applyExpenseFilter() {
   expenseFilters.category = document.getElementById('filter-category').value;
@@ -1224,7 +1258,7 @@ async function loadSharedTrip(tripName) {
         loadTrip(tripId);
         applyPermissions();
         showStatus('✓ 已載入最新旅行資料');
-        if (!currentMember) showMemberSelectModal(TRIPS[tripId]);
+        restoreOrSelectMember(TRIPS[tripId]);
         return;
       }
     } catch (error) {
@@ -1239,7 +1273,7 @@ async function loadSharedTrip(tripName) {
     loadTrips();
     loadTrip(tripId);
     showStatus('⚠️ 雲端無法連線，顯示本機快取');
-    if (!currentMember) showMemberSelectModal(TRIPS[tripId]);
+    restoreOrSelectMember(TRIPS[tripId]);
     return;
   }
 
@@ -1280,6 +1314,20 @@ async function loadAllTripsFromCloud() {
   }
 }
 
+function restoreOrSelectMember(trip) {
+  if (!trip || !trip.members) return;
+  const saved = sessionStorage.getItem('sharedMember');
+  if (saved && trip.members.includes(saved)) {
+    currentMember = saved;
+    const payerEl = document.getElementById('exp-payer');
+    if (payerEl) payerEl.value = saved;
+    renderExpenses();
+    showStatus(`✓ 以 ${saved} 的身份記帳中`);
+  } else if (!currentMember) {
+    showMemberSelectModal(trip);
+  }
+}
+
 function showMemberSelectModal(trip) {
   if (!trip || !trip.members || trip.members.length === 0) return;
   const list = document.getElementById('member-select-list');
@@ -1292,8 +1340,8 @@ function showMemberSelectModal(trip) {
 
 function selectMember(name) {
   currentMember = name;
+  sessionStorage.setItem('sharedMember', name);
   document.getElementById('member-select-modal').classList.remove('active');
-  // Pre-select payer to self
   const payerEl = document.getElementById('exp-payer');
   if (payerEl) payerEl.value = name;
   renderExpenses();
@@ -1712,26 +1760,10 @@ function renderExpenses() {
     });
   }
 
-  // Summary always uses all expenses (not filtered)
-  const total1 = trip.expenses.reduce((sum, exp) => {
+  // Summary uses all expenses (will be updated to filtered after filtering)
+  const allTotal1 = trip.expenses.reduce((sum, exp) => {
     return sum + (exp.currency === trip.currency1 ? exp.amount : exp.amount / trip.exchangeRate);
   }, 0);
-  const total2 = total1 * trip.exchangeRate;
-
-  document.getElementById('expenses-summary').innerHTML = `
-    <div class="summary-card">
-      <div class="summary-card-label">總支出 (${trip.currency1})</div>
-      <div class="summary-card-value">${total1.toFixed(2)}</div>
-    </div>
-    <div class="summary-card">
-      <div class="summary-card-label">總支出 (${trip.currency2})</div>
-      <div class="summary-card-value">${total2.toFixed(2)}</div>
-    </div>
-    <div class="summary-card">
-      <div class="summary-card-label">支出筆數</div>
-      <div class="summary-card-value">${trip.expenses.length}</div>
-    </div>
-  `;
 
   // Sort by date desc
   let sorted = [...trip.expenses].sort((a, b) => {
@@ -1746,6 +1778,30 @@ function renderExpenses() {
   if (payer)    sorted = sorted.filter(e => e.paidBy === payer);
   if (dateFrom) sorted = sorted.filter(e => e.date >= dateFrom);
   if (dateTo)   sorted = sorted.filter(e => e.date <= dateTo);
+
+  const isFiltered = category || payer || dateFrom || dateTo;
+  const filtTotal1 = sorted.reduce((sum, exp) => {
+    return sum + (exp.currency === trip.currency1 ? exp.amount : exp.amount / trip.exchangeRate);
+  }, 0);
+  const filtTotal2 = filtTotal1 * trip.exchangeRate;
+  const allTotal2 = allTotal1 * trip.exchangeRate;
+
+  document.getElementById('expenses-summary').innerHTML = `
+    <div class="summary-card">
+      <div class="summary-card-label">${isFiltered ? '篩選支出' : '總支出'} (${trip.currency1})</div>
+      <div class="summary-card-value">${filtTotal1.toFixed(2)}</div>
+      ${isFiltered ? `<div style="font-size:11px;color:#999;margin-top:2px;">全部 ${allTotal1.toFixed(2)}</div>` : ''}
+    </div>
+    <div class="summary-card">
+      <div class="summary-card-label">${isFiltered ? '篩選支出' : '總支出'} (${trip.currency2})</div>
+      <div class="summary-card-value">${filtTotal2.toFixed(2)}</div>
+      ${isFiltered ? `<div style="font-size:11px;color:#999;margin-top:2px;">全部 ${allTotal2.toFixed(2)}</div>` : ''}
+    </div>
+    <div class="summary-card">
+      <div class="summary-card-label">支出筆數</div>
+      <div class="summary-card-value">${isFiltered ? sorted.length + ' / ' + trip.expenses.length : trip.expenses.length}</div>
+    </div>
+  `;
 
   document.getElementById('expenses-empty').style.display = 'none';
 
@@ -2158,19 +2214,33 @@ function downloadFile(content, filename, mimeType) {
   URL.revokeObjectURL(url);
 }
 
-function deleteTrip() {
-  if (!confirm('確定要刪除此旅行嗎？所有記帳資料將會遺失！')) return;
+async function deleteTrip() {
+  if (!confirm('確定要刪除此旅行嗎？本機與雲端資料將一併移除！')) return;
 
   const tripId = SETTINGS.currentTrip;
+  const trip = TRIPS[tripId];
+
+  if (trip && SETTINGS.syncUrl) {
+    showStatus('⏳ 正在從雲端移除...');
+    try {
+      await fetch(SETTINGS.syncUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'text/plain' },
+        body: JSON.stringify({ action: 'deleteTrip', tripName: trip.name })
+      });
+    } catch (e) {
+      console.error('Cloud delete failed:', e);
+    }
+  }
+
   delete TRIPS[tripId];
   SETTINGS.currentTrip = null;
-
   localStorage.setItem('travel_trips', JSON.stringify(TRIPS));
   localStorage.setItem('travel_settings', JSON.stringify(SETTINGS));
 
   loadTrips();
   showEmptyState();
-  showStatus('✓ 旅行已刪除');
+  showStatus('✓ 旅行已刪除（本機 + 雲端）');
 }
 
 // ── Copy Link ──
@@ -2194,29 +2264,23 @@ async function manualSync() {
     return;
   }
 
+  updateSyncIndicator('syncing');
   try {
     document.getElementById('sync-status').innerHTML = '⏳ 同步中...';
 
     const response = await fetch(SETTINGS.syncUrl, {
       method: 'POST',
-      headers: {
-        'Content-Type': 'text/plain',
-      },
-      body: JSON.stringify({
-        action: 'upload',
-        tripName: trip.name,
-        data: trip
-      })
+      headers: { 'Content-Type': 'text/plain' },
+      body: JSON.stringify({ action: 'upload', tripName: trip.name, data: trip })
     });
 
     if (!response.ok) throw new Error('HTTP ' + response.status);
+    updateSyncIndicator('ok');
     document.getElementById('sync-status').innerHTML = '✓ 同步完成！';
     showStatus('✓ 資料已上傳到雲端');
-
-    setTimeout(() => {
-      document.getElementById('sync-status').innerHTML = '';
-    }, 3000);
+    setTimeout(() => { document.getElementById('sync-status').innerHTML = ''; }, 3000);
   } catch (error) {
+    updateSyncIndicator('error');
     console.error('Sync error:', error);
     document.getElementById('sync-status').innerHTML = '❌ 同步失敗：' + error.message;
     showStatus('❌ 同步失敗');
@@ -2230,24 +2294,21 @@ async function autoSyncToCloud() {
     return; // Silently skip if no trip or sync URL
   }
 
+  updateSyncIndicator('syncing');
   try {
     const syncResp = await fetch(SETTINGS.syncUrl, {
       method: 'POST',
-      headers: {
-        'Content-Type': 'text/plain',
-      },
-      body: JSON.stringify({
-        action: 'upload',
-        tripName: trip.name,
-        data: trip
-      })
+      headers: { 'Content-Type': 'text/plain' },
+      body: JSON.stringify({ action: 'upload', tripName: trip.name, data: trip })
     });
     if (syncResp.ok) {
-      console.log('✓ Auto sync completed');
+      updateSyncIndicator('ok');
     } else {
+      updateSyncIndicator('error');
       console.error('Auto sync failed: HTTP', syncResp.status);
     }
   } catch (error) {
+    updateSyncIndicator('error');
     console.error('Auto sync error:', error);
   }
 }
@@ -2328,15 +2389,19 @@ function showStatus(message) {
 function startAutoRefresh() {
   if (!SETTINGS.syncUrl) return;
   setInterval(async () => {
-    if (sharedTrip) {
-      await loadSharedTrip(sharedTrip);
-    } else if (isAdmin) {
-      await loadAllTripsFromCloud();
-      loadTrips();
-      const trip = TRIPS[SETTINGS.currentTrip];
-      if (trip) {
-        loadTrip(SETTINGS.currentTrip);
+    updateSyncIndicator('syncing');
+    try {
+      if (sharedTrip) {
+        await loadSharedTrip(sharedTrip);
+      } else if (isAdmin) {
+        await loadAllTripsFromCloud();
+        loadTrips();
+        const trip = TRIPS[SETTINGS.currentTrip];
+        if (trip) loadTrip(SETTINGS.currentTrip);
       }
+      updateSyncIndicator('ok');
+    } catch (e) {
+      updateSyncIndicator('error');
     }
   }, 30000);
 }
