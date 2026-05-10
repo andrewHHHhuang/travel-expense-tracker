@@ -1040,10 +1040,15 @@ const sharedTrip = urlParams.get('trip');
 
 // ── Initialization ──
 async function init() {
-  // Check shared trip link
   if (sharedTrip) {
+    // Guest mode: load one specific trip (read-only)
     await loadSharedTrip(sharedTrip);
   } else {
+    // Admin / local mode
+    if (isAdmin && SETTINGS.syncUrl) {
+      // Admin: pull all trips from cloud first, then show locally
+      await loadAllTripsFromCloud();
+    }
     loadTrips();
     if (SETTINGS.currentTrip && TRIPS[SETTINGS.currentTrip]) {
       loadTrip(SETTINGS.currentTrip);
@@ -1097,6 +1102,38 @@ async function loadSharedTrip(tripName) {
   // Failed to load, show error message
   showEmptyState();
   showCloudLoadPrompt(tripName);
+}
+
+async function loadAllTripsFromCloud() {
+  showStatus('⏳ 正在從雲端載入所有行程...');
+  try {
+    const response = await fetch(SETTINGS.syncUrl + '?action=listAll');
+    const data = await response.json();
+    if (data.success && Array.isArray(data.trips) && data.trips.length > 0) {
+      let firstNewId = null;
+      for (const tripData of data.trips) {
+        // Match by trip name; update in-place if exists, otherwise add
+        const existingId = Object.keys(TRIPS).find(id => TRIPS[id].name === tripData.name);
+        if (existingId) {
+          TRIPS[existingId] = tripData;
+        } else {
+          const id = 'trip-' + Date.now() + '-' + Math.random().toString(36).substr(2, 5);
+          TRIPS[id] = tripData;
+          if (!firstNewId) firstNewId = id;
+        }
+      }
+      // If no currentTrip is set, default to first new trip
+      if (!SETTINGS.currentTrip && firstNewId) {
+        SETTINGS.currentTrip = firstNewId;
+      }
+      localStorage.setItem('travel_trips', JSON.stringify(TRIPS));
+      localStorage.setItem('travel_settings', JSON.stringify(SETTINGS));
+      showStatus('✓ 已從雲端載入 ' + data.trips.length + ' 個行程');
+    }
+  } catch (error) {
+    console.error('Load all trips from cloud failed:', error);
+    showStatus('⚠️ 雲端載入失敗，使用本機資料');
+  }
 }
 
 function applyPermissions() {
@@ -1631,7 +1668,7 @@ function renderSettings() {
   if (!trip) return;
 
   const baseUrl = window.location.origin + window.location.pathname;
-  const adminLink = `${baseUrl}?admin=true&trip=${encodeURIComponent(trip.name)}`;
+  const adminLink = `${baseUrl}?admin=true`;
   const shareLink = `${baseUrl}?trip=${encodeURIComponent(trip.name)}`;
 
   document.getElementById('trip-settings-content').innerHTML = `
