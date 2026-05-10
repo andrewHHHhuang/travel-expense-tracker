@@ -1062,36 +1062,27 @@ async function init() {
 }
 
 async function loadSharedTrip(tripName) {
-  // Find trip by name
-  let tripId = Object.keys(TRIPS).find(id => TRIPS[id].name === tripName);
-
-  if (tripId) {
-    SETTINGS.currentTrip = tripId;
-    loadTrips();
-    loadTrip(tripId);
-    return;
-  }
-
-  // Trip not found locally, try to load from cloud
+  // Always fetch from cloud first so all users see the latest data
   if (SETTINGS.syncUrl) {
     showStatus('⏳ 正在從雲端載入旅行資料...');
-
     try {
       const response = await fetch(SETTINGS.syncUrl + '?action=download&tripName=' + encodeURIComponent(tripName));
       const data = await response.json();
 
       if (data.success && data.data) {
-        const id = 'trip-' + Date.now();
-        TRIPS[id] = data.data;
-        SETTINGS.currentTrip = id;
+        // Update or create local entry (match by name)
+        let tripId = Object.keys(TRIPS).find(id => TRIPS[id].name === tripName);
+        if (!tripId) tripId = 'trip-' + Date.now();
+        TRIPS[tripId] = data.data;
+        SETTINGS.currentTrip = tripId;
 
         localStorage.setItem('travel_trips', JSON.stringify(TRIPS));
         localStorage.setItem('travel_settings', JSON.stringify(SETTINGS));
 
         loadTrips();
-        loadTrip(id);
-        applyPermissions();  // 重新套用權限控制，更新 UI
-        showStatus('✓ 已從雲端載入旅行資料');
+        loadTrip(tripId);
+        applyPermissions();
+        showStatus('✓ 已載入最新旅行資料');
         return;
       }
     } catch (error) {
@@ -1099,7 +1090,17 @@ async function loadSharedTrip(tripName) {
     }
   }
 
-  // Failed to load, show error message
+  // Cloud unavailable — fall back to local cache
+  const tripId = Object.keys(TRIPS).find(id => TRIPS[id].name === tripName);
+  if (tripId) {
+    SETTINGS.currentTrip = tripId;
+    loadTrips();
+    loadTrip(tripId);
+    showStatus('⚠️ 雲端無法連線，顯示本機快取');
+    return;
+  }
+
+  // Nothing available
   showEmptyState();
   showCloudLoadPrompt(tripName);
 }
