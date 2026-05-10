@@ -2024,8 +2024,25 @@ function showStatus(message) {
   }, 3000);
 }
 
+// ── Auto Refresh ──
+function startAutoRefresh() {
+  if (!SETTINGS.syncUrl) return;
+  setInterval(async () => {
+    if (sharedTrip) {
+      await loadSharedTrip(sharedTrip);
+    } else if (isAdmin) {
+      await loadAllTripsFromCloud();
+      loadTrips();
+      const trip = TRIPS[SETTINGS.currentTrip];
+      if (trip) {
+        loadTrip(SETTINGS.currentTrip);
+      }
+    }
+  }, 30000);
+}
+
 // ── Init ──
-init();
+init().then(() => startAutoRefresh());
 </script>
 
 </body>
