@@ -1166,6 +1166,7 @@ let editingExpenseId = null;
 let currentMember = null;
 let expenseFilters = { category: '', payer: '', dateFrom: '', dateTo: '' };
 let lastSyncTime = null;
+const dirtyTrips = new Set(); // trip IDs with local changes not yet confirmed uploaded
 
 function updateSyncIndicator(state) {
   const indicator = document.getElementById('sync-indicator');
@@ -2295,29 +2296,35 @@ async function manualSync() {
   }
 }
 
-// Auto sync to cloud (silent, for shared users)
-async function autoSyncToCloud() {
-  const trip = TRIPS[SETTINGS.currentTrip];
-  if (!trip || !SETTINGS.syncUrl) {
-    return; // Silently skip if no trip or sync URL
-  }
+// Auto sync to cloud — retries up to maxRetries times, protects local data
+async function autoSyncToCloud(maxRetries = 2) {
+  const tripId = SETTINGS.currentTrip;
+  const trip = TRIPS[tripId];
+  if (!trip || !SETTINGS.syncUrl) return;
 
+  dirtyTrips.add(tripId);
   updateSyncIndicator('syncing');
-  try {
-    const syncResp = await fetch(SETTINGS.syncUrl, {
-      method: 'POST',
-      headers: { 'Content-Type': 'text/plain' },
-      body: JSON.stringify({ action: 'upload', tripName: trip.name, data: trip })
-    });
-    if (syncResp.ok) {
+
+  for (let attempt = 0; attempt <= maxRetries; attempt++) {
+    try {
+      const resp = await fetch(SETTINGS.syncUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'text/plain' },
+        body: JSON.stringify({ action: 'upload', tripName: trip.name, data: trip })
+      });
+      if (!resp.ok) throw new Error('HTTP ' + resp.status);
+      dirtyTrips.delete(tripId);
       updateSyncIndicator('ok');
-    } else {
-      updateSyncIndicator('error');
-      console.error('Auto sync failed: HTTP', syncResp.status);
+      return;
+    } catch (err) {
+      if (attempt < maxRetries) {
+        await new Promise(r => setTimeout(r, 1500 * (attempt + 1)));
+      } else {
+        updateSyncIndicator('error');
+        showStatus('❌ 同步失敗，資料已暫存。請稍後點「🔄 重試同步」或重新整理頁面後再記帳。');
+        console.error('autoSyncToCloud failed after retries:', err);
+      }
     }
-  } catch (error) {
-    updateSyncIndicator('error');
-    console.error('Auto sync error:', error);
   }
 }
 
@@ -2399,6 +2406,16 @@ function startAutoRefresh() {
   setInterval(async () => {
     updateSyncIndicator('syncing');
     try {
+      // If local changes haven't been uploaded yet, retry upload first.
+      // Only download from cloud after confirming upload succeeded (or no dirty data).
+      if (dirtyTrips.has(SETTINGS.currentTrip)) {
+        await autoSyncToCloud(1);
+        // If still dirty after retry, skip download to protect local data
+        if (dirtyTrips.has(SETTINGS.currentTrip)) {
+          updateSyncIndicator('error');
+          return;
+        }
+      }
       if (sharedTrip) {
         await loadSharedTrip(sharedTrip);
       } else if (isAdmin) {
