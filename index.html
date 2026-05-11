@@ -1155,8 +1155,8 @@ let SETTINGS = JSON.parse(localStorage.getItem('travel_settings')) || {
   autoSync: false
 };
 
-// Ensure syncUrl is set if not already
-if (!SETTINGS.syncUrl) {
+// Ensure syncUrl is set only if never configured (undefined/null, not empty string)
+if (SETTINGS.syncUrl === undefined || SETTINGS.syncUrl === null) {
   SETTINGS.syncUrl = 'https://script.google.com/macros/s/AKfycbyoWvZ_x2hRIN_5FK0bx8XL2JLLP3um4U4JbrMz2ZohhyaBHTK2czSjzc1nrBt07y2hBw/exec';
   localStorage.setItem('travel_settings', JSON.stringify(SETTINGS));
 }
@@ -1811,6 +1811,13 @@ function renderExpenses() {
 
   if (sorted.length === 0) {
     document.getElementById('expenses-table').style.display = 'none';
+    const emptyEl = document.getElementById('expenses-empty');
+    if (isFiltered) {
+      emptyEl.innerHTML = '<div class="empty-state-icon">🔍</div><div class="empty-state-text">沒有符合篩選條件的支出</div>';
+    } else {
+      emptyEl.innerHTML = '<div class="empty-state-icon">📝</div><div class="empty-state-text">尚無支出記錄</div><button class="btn btn-primary" onclick="document.getElementById(\'exp-description\').focus()">新增第一筆支出</button>';
+    }
+    emptyEl.style.display = 'block';
     if (cardsContainer) cardsContainer.innerHTML = '<p style="color:#999;text-align:center;padding:20px;">沒有符合篩選條件的支出</p>';
     return;
   }
