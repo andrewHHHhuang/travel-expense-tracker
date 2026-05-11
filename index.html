@@ -2296,29 +2296,47 @@ async function manualSync() {
   }
 }
 
-// Strip base64 receipt images before cloud upload to stay within Google Sheets cell limit
-function stripReceiptsForCloud(trip) {
+// Compress receipt image to cloud-appropriate size (fits Sheets 50K char cell limit)
+function resizeBase64ForCloud(base64) {
+  return new Promise(resolve => {
+    const img = new Image();
+    img.onload = function() {
+      const MAX = 450;
+      let w = img.width, h = img.height;
+      if (w > h) { if (w > MAX) { h = Math.round(h * MAX / w); w = MAX; } }
+      else        { if (h > MAX) { w = Math.round(w * MAX / h); h = MAX; } }
+      const canvas = document.createElement('canvas');
+      canvas.width = w; canvas.height = h;
+      canvas.getContext('2d').drawImage(img, 0, 0, w, h);
+      resolve(canvas.toDataURL('image/jpeg', 0.65));
+    };
+    img.onerror = () => resolve(null);
+    img.src = base64;
+  });
+}
+
+async function prepareReceiptsForCloud(trip) {
   const copy = JSON.parse(JSON.stringify(trip));
   if (copy.expenses) {
-    copy.expenses = copy.expenses.map(e => {
+    copy.expenses = await Promise.all(copy.expenses.map(async e => {
       if (e.receipt && e.receipt.startsWith('data:')) {
-        return { ...e, receipt: '__local_only__' };
+        const cloudImg = await resizeBase64ForCloud(e.receipt);
+        return { ...e, receipt: cloudImg || e.receipt };
       }
       return e;
-    });
+    }));
   }
   return copy;
 }
 
-// Restore local receipt images after downloading from cloud
+// After downloading from cloud, prefer local high-res version when available
 function restoreLocalReceipts(cloudTrip, localTrip) {
   if (!localTrip || !cloudTrip.expenses || !localTrip.expenses) return cloudTrip;
   cloudTrip.expenses = cloudTrip.expenses.map(ce => {
-    if (ce.receipt === '__local_only__') {
-      const le = localTrip.expenses.find(e => e.id === ce.id);
-      if (le && le.receipt && le.receipt.startsWith('data:')) {
-        return { ...ce, receipt: le.receipt };
-      }
+    const le = localTrip.expenses.find(e => e.id === ce.id);
+    if (le && le.receipt && le.receipt.startsWith('data:') &&
+        ce.receipt && ce.receipt.startsWith('data:')) {
+      return { ...ce, receipt: le.receipt }; // prefer local (higher-res)
     }
     return ce;
   });
@@ -2334,12 +2352,14 @@ async function autoSyncToCloud(maxRetries = 2) {
   dirtyTrips.add(tripId);
   updateSyncIndicator('syncing');
 
+  const cloudTrip = await prepareReceiptsForCloud(trip);
+
   for (let attempt = 0; attempt <= maxRetries; attempt++) {
     try {
       const resp = await fetch(SETTINGS.syncUrl, {
         method: 'POST',
         headers: { 'Content-Type': 'text/plain' },
-        body: JSON.stringify({ action: 'upload', tripName: trip.name, data: stripReceiptsForCloud(trip) })
+        body: JSON.stringify({ action: 'upload', tripName: cloudTrip.name, data: cloudTrip })
       });
       if (!resp.ok) throw new Error('HTTP ' + resp.status);
       dirtyTrips.delete(tripId);
