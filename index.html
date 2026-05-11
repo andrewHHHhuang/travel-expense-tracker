@@ -1249,7 +1249,7 @@ async function loadSharedTrip(tripName) {
         // Update or create local entry (match by name)
         let tripId = Object.keys(TRIPS).find(id => TRIPS[id].name === tripName);
         if (!tripId) tripId = 'trip-' + Date.now();
-        TRIPS[tripId] = data.data;
+        TRIPS[tripId] = restoreLocalReceipts(data.data, TRIPS[tripId]);
         SETTINGS.currentTrip = tripId;
 
         localStorage.setItem('travel_trips', JSON.stringify(TRIPS));
@@ -1294,7 +1294,7 @@ async function loadAllTripsFromCloud() {
         // Match by trip name; update in-place if exists, otherwise add
         const existingId = Object.keys(TRIPS).find(id => TRIPS[id].name === tripData.name);
         if (existingId) {
-          TRIPS[existingId] = tripData;
+          TRIPS[existingId] = restoreLocalReceipts(tripData, TRIPS[existingId]);
         } else {
           const id = 'trip-' + Date.now() + '-' + Math.random().toString(36).substr(2, 5);
           TRIPS[id] = tripData;
@@ -2296,6 +2296,35 @@ async function manualSync() {
   }
 }
 
+// Strip base64 receipt images before cloud upload to stay within Google Sheets cell limit
+function stripReceiptsForCloud(trip) {
+  const copy = JSON.parse(JSON.stringify(trip));
+  if (copy.expenses) {
+    copy.expenses = copy.expenses.map(e => {
+      if (e.receipt && e.receipt.startsWith('data:')) {
+        return { ...e, receipt: '__local_only__' };
+      }
+      return e;
+    });
+  }
+  return copy;
+}
+
+// Restore local receipt images after downloading from cloud
+function restoreLocalReceipts(cloudTrip, localTrip) {
+  if (!localTrip || !cloudTrip.expenses || !localTrip.expenses) return cloudTrip;
+  cloudTrip.expenses = cloudTrip.expenses.map(ce => {
+    if (ce.receipt === '__local_only__') {
+      const le = localTrip.expenses.find(e => e.id === ce.id);
+      if (le && le.receipt && le.receipt.startsWith('data:')) {
+        return { ...ce, receipt: le.receipt };
+      }
+    }
+    return ce;
+  });
+  return cloudTrip;
+}
+
 // Auto sync to cloud — retries up to maxRetries times, protects local data
 async function autoSyncToCloud(maxRetries = 2) {
   const tripId = SETTINGS.currentTrip;
@@ -2310,7 +2339,7 @@ async function autoSyncToCloud(maxRetries = 2) {
       const resp = await fetch(SETTINGS.syncUrl, {
         method: 'POST',
         headers: { 'Content-Type': 'text/plain' },
-        body: JSON.stringify({ action: 'upload', tripName: trip.name, data: trip })
+        body: JSON.stringify({ action: 'upload', tripName: trip.name, data: stripReceiptsForCloud(trip) })
       });
       if (!resp.ok) throw new Error('HTTP ' + resp.status);
       dirtyTrips.delete(tripId);
