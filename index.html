@@ -1737,6 +1737,7 @@ function renderExpenses() {
 
   if (!trip || trip.expenses.length === 0) {
     document.getElementById('expenses-table').style.display = 'none';
+    document.getElementById('expenses-tbody').innerHTML = '';
     document.getElementById('expenses-empty').style.display = 'block';
     document.getElementById('expenses-summary').innerHTML = '';
     if (filterBar) filterBar.style.display = 'none';
