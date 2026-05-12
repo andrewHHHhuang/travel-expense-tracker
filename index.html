@@ -1534,6 +1534,10 @@ function loadPayers() {
       select.appendChild(option);
     });
   }
+
+  if (currentMember && trip.members.includes(currentMember)) {
+    select.value = currentMember;
+  }
 }
 
 // ── New Trip ──
@@ -1831,7 +1835,7 @@ function renderExpenses() {
     const otherCurrency = exp.currency === trip.currency1
       ? (exp.amount * trip.exchangeRate).toFixed(2) + ' ' + trip.currency2
       : (exp.amount / trip.exchangeRate).toFixed(2) + ' ' + trip.currency1;
-    const canEditDelete = isAdmin || (sharedTrip && currentMember && exp.paidBy === currentMember);
+    const canEditDelete = !sharedTrip || isAdmin || (currentMember && exp.paidBy === currentMember);
 
     const tr = document.createElement('tr');
     tr.innerHTML = `
@@ -1861,7 +1865,7 @@ function renderExpenses() {
       const otherCurrency = exp.currency === trip.currency1
         ? (exp.amount * trip.exchangeRate).toFixed(2) + ' ' + trip.currency2
         : (exp.amount / trip.exchangeRate).toFixed(2) + ' ' + trip.currency1;
-      const canEditDelete = isAdmin || (sharedTrip && currentMember && exp.paidBy === currentMember);
+      const canEditDelete = !sharedTrip || isAdmin || (currentMember && exp.paidBy === currentMember);
 
       const card = document.createElement('div');
       card.className = 'expense-card';
