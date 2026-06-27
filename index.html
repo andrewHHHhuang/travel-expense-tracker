@@ -1456,6 +1456,8 @@ function setDefaultDate() {
 // ── Trip Management ──
 function loadTrips() {
   const selector = document.getElementById('trip-selector');
+  if (!selector) return; // Skip if in shared mode (selector replaced)
+
   selector.innerHTML = '<option value="">請選擇旅行</option>';
 
   Object.keys(TRIPS).forEach(id => {
